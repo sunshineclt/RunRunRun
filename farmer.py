@@ -1,105 +1,111 @@
 # farmer.py
+# Adapted from https://github.com/ctmakro/stanford-osrl
 
-# connector to the farms
-from pyro_helper import pyro_connect
-
-import threading as th
 import time
 
-# farmport = 20099
+# connector to the farms
+from utils.pyro_helper import pyro_connect
 
-class farmlist:
+
+class FarmList:
     def __init__(self):
         self.list = []
 
     def generate(self):
         farmport = 20099
-        def addressify(farmaddr,port):
-            return farmaddr+':'+str(port)
-        addresses = [addressify(farm[0],farmport) for farm in self.list]
-        capacities = [farm[1] for farm in self.list]
-        failures = [0 for i in range(len(capacities))]
 
-        return addresses,capacities,failures
+        def addressify(farmaddr, port):
+            return farmaddr + ':' + str(port)
 
-    def push(self, addr, capa):
-        self.list.append((addr,capa))
+        addresses_from_farmlist = [addressify(farm[0], farmport) for farm in self.list]
+        capacities_from_farmlist = [farm[1] for farm in self.list]
+        failures_from_farmlist = [0 for _ in range(len(capacities_from_farmlist))]
 
-fl = farmlist()
+        return addresses_from_farmlist, capacities_from_farmlist, failures_from_farmlist
 
-def reload_addr():
-    global addresses,capacities,failures
+    def push(self, address, capacity):
+        self.list.append((address, capacity))
 
-    g = {'nothing':0}
-    with open('farmlist.py','r') as f:
+
+farm_list = FarmList()
+
+
+def reload_address():
+    global addresses, capacities, failures
+
+    g = {'nothing': []}
+    with open('farmlist.py', 'r') as f:
         farmlist_py = f.read()
-    exec(farmlist_py,g)
+    exec (farmlist_py, g)
     farmlist_base = g['farmlist_base']
 
-    fl.list = []
+    farm_list.list = []
     for item in farmlist_base:
-        fl.push(item[0],item[1])
+        farm_list.push(item[0], item[1])
 
-    addresses,capacities,failures = fl.generate()
+    addresses, capacities, failures = farm_list.generate()
 
-reload_addr()
 
-class remoteEnv:
-    def pretty(self,s):
-        print(('(remoteEnv) {} ').format(self.id)+str(s))
+reload_address()
 
-    def __init__(self,fp,id): # fp = farm proxy
-        self.fp = fp
+
+class RemoteEnv:
+    def pretty(self, s):
+        print('(emoteEnv) {} '.format(self.id) + str(s))
+
+    def __init__(self, farm_proxy, id):  # fp = farm proxy
+        self.farm_proxy = farm_proxy
         self.id = id
 
     def reset(self):
-        return self.fp.reset(self.id)
+        return self.farm_proxy.reset(self.id)
 
-    def step(self,actions):
-        ret = self.fp.step(self.id, actions)
-        if ret == False:
+    def step(self, actions):
+        ret = self.farm_proxy.step(self.id, actions)
+        if not ret:
             self.pretty('env not found on farm side, might been released.')
             raise Exception('env not found on farm side, might been released.')
         return ret
 
     def rel(self):
         count = 0
-        while True: # releasing is important, so
+        while True:  # releasing is important, so
             try:
-                count+=1
-                self.fp.rel(self.id)
+                count += 1
+                self.farm_proxy.rel(self.id)
                 break
             except Exception as e:
                 self.pretty('exception caught on rel()')
                 self.pretty(e)
                 time.sleep(3)
-                if count>5:
+                if count > 5:
                     self.pretty('failed to rel().')
                     break
                 pass
 
-        self.fp._pyroRelease()
+        self.farm_proxy._pyroRelease()
 
     def __del__(self):
         self.rel()
 
-class farmer:
-    def reload_addr(self):
-        self.pretty('reloading farm list...')
-        reload_addr()
 
-    def pretty(self,s):
-        print('(farmer) '+str(s))
+class Farmer:
+    def reload_address(self):
+        self.pretty('reloading farm list...')
+        reload_address()
+
+    def pretty(self, s):
+        print('(farmer) ' + str(s))
 
     def __init__(self):
-        for idx,address in enumerate(addresses):
-            fp = pyro_connect(address,'farm')
-            self.pretty('forced renewing... '+address)
+        for idx, address in enumerate(addresses):
+            fp = pyro_connect(address, 'farm')
+            self.pretty('forced renewing... ' + address)
             try:
-                fp.forcerenew(capacities[idx])
-                self.pretty('fp.forcerenew() success on '+address)
+                fp.force_renew(capacities[idx])
+                self.pretty('fp.forcerenew() success on ' + address)
             except Exception as e:
-                self.pretty('fp.forcerenew() failed on '+address)
+                self.pretty('fp.forcerenew() failed on ' + address)
                 self.pretty(e)
                 fp._pyroRelease()
                 continue
@@ -109,57 +115,42 @@ class farmer:
     def acq_env(self):
         ret = False
 
-        import random # randomly sample to achieve load averaging
-        # l = list(enumerate(addresses))
-        l = list(range(len(addresses)))
-        random.shuffle(l)
+        import random  # randomly sample to achieve load averaging
+        indexes = list(range(len(addresses)))
+        random.shuffle(indexes)
 
-        for idx in l:
+        for idx in indexes:
             time.sleep(0.1)
             address = addresses[idx]
             capacity = capacities[idx]
 
-            if failures[idx]>0:
+            if failures[idx] > 0:
                 # wait for a few more rounds upon failure,
                 # to minimize overhead on querying busy instances
                 failures[idx] -= 1
                 continue
             else:
-                fp = pyro_connect(address,'farm')
+                fp = pyro_connect(address, 'farm')
                 try:
                     result = fp.acq(capacity)
                 except Exception as e:
-                    self.pretty('fp.acq() failed on '+address)
+                    self.pretty('fp.acq() failed on ' + address)
                     self.pretty(e)
 
                     fp._pyroRelease()
                     failures[idx] += 4
                     continue
                 else:
-                    if result == False: # no free ei
-                        fp._pyroRelease() # destroy proxy
+                    if not result:  # no free ei
+                        fp._pyroRelease()  # destroy proxy
                         failures[idx] += 4
                         continue
-                    else: # result is an id
+                    else:  # result is an id
                         eid = result
-                        renv = remoteEnv(fp,eid) # build remoteEnv around the proxy
-                        self.pretty('got one on {} id:{}'.format(address,eid))
+                        renv = RemoteEnv(fp, eid)  # build remoteEnv around the proxy
+                        self.pretty('got one on {} id:{}'.format(address, eid))
                         ret = renv
                         break
 
         # ret is False if none of the farms has free ei
         return ret
-
-    # the following is commented out. should not use.
-    # def renew(self):
-    #     for idx,address in enumerate(addresses):
-    #         fp = pyro_connect(address,'farm')
-    #         try:
-    #             fp.renew(capacities[idx])
-    #         except Exception as e:
-    #             print('(farmer) fp.renew() failed on '+address)
-    #             print(e)
-    #             fp._pyroRelease()
-    #             continue
-    #         print('(farmer) '+address+' renewed.')
-    #         fp._pyroRelease()
