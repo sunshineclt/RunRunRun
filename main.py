@@ -5,10 +5,12 @@ from utils.triggerbox import TriggerBox
 from utils.EnvWarpper import FastEnv
 import threading
 import time
+import tensorflow as tf
+from DDPGAgent import DDPGAgent
 
 if __name__ == "__main__":
     tempenv = RunEnv(visualize=False)
-    agent = None
+    agent = DDPGAgent(processed_dims, tempenv.action_space.shape[0], gamma=0.99)
     farmer = Farmer()
 
 
@@ -19,7 +21,6 @@ if __name__ == "__main__":
 
 
     stop_flag = False
-
 
     def stopsim():
         global stop_flag
@@ -34,16 +35,14 @@ if __name__ == "__main__":
 
     def play_one_episode(env):
         fast_env = FastEnv(env, 3)  # skipcount = 3
-        # agent.play(fast_env)
+        agent.play(fast_env)
         env.rel()
         del fast_env
 
-
     def play_async(env):
-        thread = threading.Thread(target=play_one_episode, args=(env))
+        thread = threading.Thread(target=play_one_episode, args=(env, ))
         thread.daemon = True
         thread.start()
-
 
     def play_if_available():
         while True:
@@ -53,7 +52,6 @@ if __name__ == "__main__":
             else:
                 play_async(remote_env)
                 break
-
 
     def play_repeat(episode):
         global stop_flag
@@ -70,16 +68,18 @@ if __name__ == "__main__":
             if (i + 1) % 2000 == 0:
                 save()
 
-
-    def test():
+    def test(skip=4):
         test_env = RunEnv(visualize=True, max_obstacles=0)
-        # agent.play(test_env)
+        from utils.EnvWarpper import fastenv
 
+        fast_env = fastenv(test_env, skip)  # 4 is skip factor
+        agent.play(fast_env)
+        del test_env
 
     def save():
-        # agent.save_weights()
+        agent.save_checkpoints()
         pass
 
     def load():
-        # agent.load_weights()
+        agent.load_checkpoints()
         pass
