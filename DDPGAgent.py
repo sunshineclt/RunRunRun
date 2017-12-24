@@ -4,8 +4,9 @@ import tensorflow.contrib.layers as layers
 import time
 import numpy as np
 from utils.utils import TensorFlowFunction as tffunction
+from Noise import OneFsqNoise
 
-path_model = 'model.ckpt'
+path_model = './model/'
 tensorboard_path = 'tb_path'
 
 
@@ -27,11 +28,11 @@ class DDPGAgent:
         self.create_critic_network("critic_now")  # Just creating shared network
         self.create_critic_network("critic_target")  # Just creating shared network
 
-        self.train_op, self.inference, self.sync_target = self.build_train()
+        self.train_op, self.inference, self.update_target = self.build_train()
         self.summary_writer.add_graph(self.sess.graph)
 
         self.sess.run(tf.global_variables_initializer())
-        self.sync_target(1)
+        self.update_target(1)
 
         self.training = True
 
@@ -106,10 +107,10 @@ class DDPGAgent:
         atw = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="actor_target")
         cw = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="critic_now")
         ctw = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="critic_target")
-        print(len(aw))
-        print(len(atw))
-        print(len(cw))
-        print(len(ctw))
+        # print(len(aw))
+        # print(len(atw))
+        # print(len(cw))
+        # print(len(ctw))
         shift_actor = [tf.assign(atw[i], aw[i] * tau + atw[i] * (1 - tau)) for i, _ in enumerate(aw)]
         shift_critic = [tf.assign(ctw[i], cw[i] * tau + ctw[i] * (1 - tau)) for i, _ in enumerate(cw)]
 
@@ -124,31 +125,51 @@ class DDPGAgent:
         actor_train = opt_actor.minimize(actor_loss, var_list=aw)
 
         # define tffunctions
-        train = tffunction(self.sess,
-                           [s1, a1, r1, isdone, s2],
-                           [critic_loss, actor_loss, critic_train, actor_train, shift_critic, shift_actor])
+        def train(memory):
+            [s1d, a1d, r1d,isdoned, s2d] = memory
+            result = self.sess.run([critic_loss, actor_loss, critic_train, actor_train, shift_critic, shift_actor],
+                                   feed_dict={
+                                       s1: s1d,
+                                       a1: a1d,
+                                       r1: r1d,
+                                       isdone: isdoned,
+                                       s2: s2d,
+                                       tau: 1e-3
+                                   })
+            return result[0], result[1]
+
         inference = tffunction(self.sess, [s1], [a_infer, q_infer])
-        sync_target = tffunction(self.sess, [tau], [shift_critic, shift_actor])
+        update_target = tffunction(self.sess, [tau], [shift_critic, shift_actor])
 
-        return train, inference, sync_target
+        return train, inference, update_target
 
-    def act(self, observation):
+    def act(self, observation, current_noise=None):
         obs = np.reshape(observation, (1, len(observation)))
         actions, q = self.inference(obs)
         actions = actions[0]
         q = q[0]
+
+        # if current_noise is not None:
+        #     disp_actions = (actions - 0.5) / 0.5
+        #     disp_actions = disp_actions * 5 + np.arange(self.action_dims) * 12.0 + 30
+        #     noise = current_noise * 5 - np.arange(self.action_dims) * 12.0 - 30
+
         return actions, q
 
-    def train_once(self):
-        memory = self.replay_buffer
-        batch_size = 64
+    def train_once(self, batch_size=64):
+        if self.replay_buffer.size() > 2000:
+            experiences = self.replay_buffer.sample_batch(batch_size)
+            self.train_op(experiences)
 
-        if memory.size() > 2000:
-            [s1, a1, r1, isdone, s2] = memory.sample_batch(batch_size)
-            self.train_op(s1, a1, r1, isdone, s2)
-
-    def play(self, env, max_steps=50000):
+    def play(self, env, noise_level, max_steps=50000):
         timer = time.time()
+        # noise_source = OneFsqNoise()
+        # noise_source.skip = 4  # frequency adjustment
+        # for j in range(200):
+        #     noise_source.one((self.action_dims, ), noise_level)
+
+        noise_phase = int(np.random.uniform() * 999999)
+
         steps = 0
         total_reward = 0
         total_q = 0
@@ -156,10 +177,20 @@ class DDPGAgent:
         s1 = env.reset()
         while steps <= max_steps:
             steps += 1
+
+            phased_noise_annel_duration = 100
+            phased_noise_amplitude = ((-noise_phase - steps) % phased_noise_annel_duration) / phased_noise_annel_duration
+            exploration_noise = np.random.normal(size=(self.action_dims, )) * noise_level * phased_noise_amplitude
+
             a1, q_value = self.act(s1)
             total_q += q_value
+
+            exploration_noise *= 0.5
+            a1 += exploration_noise
             a1 = self.clamer(a1)
-            s2, r1, done, _info = env.step(a1)
+            a1_out = a1  # just in case env.step changes a1
+
+            s2, r1, done, _info = env.step(a1_out)
             isdone = 1 if done else 0
             total_reward += r1
             if self.training:
@@ -178,9 +209,9 @@ class DDPGAgent:
 
     def save_checkpoints(self):
         saver = tf.train.Saver()
-        saver.save(tf.get_default_session(), path_model)
+        saver.save(self.sess, path_model)
 
     def load_checkpoints(self):
         saver = tf.train.Saver()
-        saver.restore(tf.get_default_session(), path_model)
+        saver.restore(self.sess, path_model)
 

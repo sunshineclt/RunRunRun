@@ -15,6 +15,10 @@ if __name__ == "__main__":
 
     farmer = Farmer()
 
+    noise_level = 2
+    noise_decay_rate = 0.005
+    noise_floor = 0
+    noiseless = 0.0001
 
     def refarm():
         global farmer
@@ -35,51 +39,56 @@ if __name__ == "__main__":
                     [stopsim])
 
 
-    def play_one_episode(env):
+    def play_one_episode(env, nl):
         fast_env = FastEnv(env, 3)  # 4 is skip factor
-        agent.play(fast_env)
+        agent.play(fast_env, noise_level=nl)
         env.rel()
         del fast_env
 
-    def play_async(env):
-        thread = threading.Thread(target=play_one_episode, args=(env, ))
+    def play_async(env, nl):
+        thread = threading.Thread(target=play_one_episode, args=(env, nl))
         thread.daemon = True
         thread.start()
 
-    def play_if_available():
+    def play_if_available(nl):
         while True:
             remote_env = farmer.acq_env()
             if not remote_env:  # There is no free environment
                 pass
             else:
-                play_async(remote_env)
+                play_async(remote_env, nl)
                 break
 
-    def play_repeat(episode):
-        global stop_flag
-        for i in range(episode):
+    def play_repeat(episode_number):
+        global stop_flag, noise_level
+        for i in range(episode_number):
             if stop_flag:
                 stop_flag = False
                 print("(play_repeat) stop signal received, stop at episode", i + 1)
                 break
 
-            print('episode', i + 1, '/', episode)
-            play_if_available()
+            noise_level *= (1 - noise_decay_rate)
+            noise_level = max(noise_floor, noise_level)
+            nl = noise_level if i % 20 != 0 else noiseless
+            print('episode {}/{}, noise_level: {}'.format(
+                i+1, episode_number, nl
+            ))
+
+            play_if_available(nl)
 
             time.sleep(0.05)
-            if (i + 1) % 2 == 0:
+            if (i + 1) % 200 == 0:
                 save()
 
     def test(skip=4):
         test_env = RunEnv(visualize=True, max_obstacles=0)
         fast_env = FastEnv(test_env, skip)  # 4 is skip factor
         agent.training = False
-        agent.play(fast_env)
+        agent.play(fast_env, noise_level=1e-11)
         agent.training = True
         del test_env
 
     def save():
-        # TODO: Need Test
         agent.save_checkpoints()
         pass
 
