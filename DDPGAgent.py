@@ -6,6 +6,7 @@ import numpy as np
 from utils.utils import TensorFlowFunction as tffunction
 
 path_model = 'model.ckpt'
+tensorboard_path = 'tb_path'
 
 
 class DDPGAgent:
@@ -19,13 +20,15 @@ class DDPGAgent:
         self.replay_buffer = ReplayBuffer(1000000)
 
         self.sess = tf.Session()
+        self.summary_writer = tf.summary.FileWriter(tensorboard_path)
 
-        self.create_actor_network("actor_now")
-        self.create_actor_network("actor_target")
-        self.create_critic_network("critic_now")
-        self.create_critic_network("critic_target")
+        self.create_actor_network("actor_now")  # Just creating shared network
+        self.create_actor_network("actor_target")  # Just creating shared network
+        self.create_critic_network("critic_now")  # Just creating shared network
+        self.create_critic_network("critic_target")  # Just creating shared network
 
         self.train_op, self.inference, self.sync_target = self.build_train()
+        self.summary_writer.add_graph(self.sess.graph)
 
         self.sess.run(tf.global_variables_initializer())
         self.sync_target(1)
@@ -49,11 +52,9 @@ class DDPGAgent:
                                          num_outputs=64,
                                          activation_fn=tf.nn.selu)
             out = layers.fully_connected(out,
-                                         num_outputs=64,
-                                         activation_fn=tf.nn.selu)
-            out = layers.fully_connected(out,
                                          num_outputs=self.action_dims,
                                          activation_fn=tf.nn.tanh)
+            out = out * 0.5 + 0.5  # tanh result in [-1, 1] while we need [0, 1]
             return out
 
     def create_critic_network(self, variable_scope, state_tensor=None, action_tensor=None, reuse=None):

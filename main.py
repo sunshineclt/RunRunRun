@@ -1,16 +1,18 @@
-from osim.env import RunEnv
-from observation_processor import processed_dims
-from farmer import Farmer
-from utils.triggerbox import TriggerBox
-from utils.EnvWarpper import FastEnv
 import threading
 import time
-import tensorflow as tf
+
+from osim.env import RunEnv
+
 from DDPGAgent import DDPGAgent
+from farmer import Farmer
+from observation_processor import processed_dims
+from utils.EnvWarpper import FastEnv
+from utils.triggerbox import TriggerBox
 
 if __name__ == "__main__":
     tempenv = RunEnv(visualize=False)
     agent = DDPGAgent(processed_dims, tempenv.action_space.shape[0], gamma=0.99)
+
     farmer = Farmer()
 
 
@@ -34,7 +36,7 @@ if __name__ == "__main__":
 
 
     def play_one_episode(env):
-        fast_env = FastEnv(env, 3)  # skipcount = 3
+        fast_env = FastEnv(env, 3)  # 4 is skip factor
         agent.play(fast_env)
         env.rel()
         del fast_env
@@ -65,18 +67,19 @@ if __name__ == "__main__":
             play_if_available()
 
             time.sleep(0.05)
-            if (i + 1) % 2000 == 0:
+            if (i + 1) % 2 == 0:
                 save()
 
     def test(skip=4):
         test_env = RunEnv(visualize=True, max_obstacles=0)
-        from utils.EnvWarpper import fastenv
-
-        fast_env = fastenv(test_env, skip)  # 4 is skip factor
+        fast_env = FastEnv(test_env, skip)  # 4 is skip factor
+        agent.training = False
         agent.play(fast_env)
+        agent.training = True
         del test_env
 
     def save():
+        # TODO: Need Test
         agent.save_checkpoints()
         pass
 
