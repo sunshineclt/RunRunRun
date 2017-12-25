@@ -70,7 +70,7 @@ if __name__ == "__main__":
 
             noise_level *= (1 - noise_decay_rate)
             noise_level = max(noise_floor, noise_level)
-            nl = noise_level if i % 20 != 0 else noiseless
+            nl = noise_level if i % 4 == 0 else noiseless
             print('episode {}/{}, noise_level: {}'.format(
                 i+1, episode_number, nl
             ))

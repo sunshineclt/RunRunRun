@@ -4,7 +4,7 @@ import tensorflow.contrib.layers as layers
 import time
 import numpy as np
 from utils.utils import TensorFlowFunction as tffunction
-from Noise import OneFsqNoise
+from utils.OUprocess import OrnsteinUhlenbeckActionNoise
 
 path_model = './model/'
 tensorboard_path = 'tb_path'
@@ -180,12 +180,10 @@ class DDPGAgent:
 
     def play(self, env, noise_level, episode_index, max_steps=50000):
         timer = time.time()
-        # noise_source = OneFsqNoise()
-        # noise_source.skip = 4  # frequency adjustment
-        # for j in range(200):
-        #     noise_source.one((self.action_dims, ), noise_level)
 
-        noise_phase = int(np.random.uniform() * 999999)
+        # noise_phase = int(np.random.uniform() * 999999)
+        noise_process = OrnsteinUhlenbeckActionNoise(np.zeros(self.action_dims),
+                                                     x0=np.random.normal(size=self.action_dims, ))
 
         steps = 0
         total_reward = 0
@@ -195,14 +193,15 @@ class DDPGAgent:
         while steps <= max_steps:
             steps += 1
 
-            phased_noise_annel_duration = 100
-            phased_noise_amplitude = ((-noise_phase - steps) % phased_noise_annel_duration) / phased_noise_annel_duration
-            exploration_noise = np.random.normal(size=(self.action_dims, )) * noise_level * phased_noise_amplitude
+            # phased_noise_annel_duration = 100
+            # phased_noise_amplitude = ((-noise_phase - steps) % phased_noise_annel_duration) / phased_noise_annel_duration
+            # exploration_noise = np.random.normal(size=(self.action_dims, )) * noise_level * phased_noise_amplitude
+            exploration_noise = noise_process() * noise_level
 
             a1, q_value = self.act(s1)
             total_q += q_value
 
-            exploration_noise *= 0.5
+            # exploration_noise *= 0.5
             a1 += exploration_noise
             a1 = self.clamer(a1)
             a1_out = a1  # just in case env.step changes a1
