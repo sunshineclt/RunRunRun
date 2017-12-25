@@ -79,7 +79,7 @@ if __name__ == "__main__":
             global_episode_index += 1
 
             time.sleep(0.05)
-            if (i + 1) % 200 == 0:
+            if i % 100 == 0 or i == episode_number - 1:
                 save()
 
     def test(skip=4):
