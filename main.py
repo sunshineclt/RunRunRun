@@ -86,7 +86,7 @@ if __name__ == "__main__":
         test_env = RunEnv(visualize=True, max_obstacles=0)
         fast_env = FastEnv(test_env, skip)  # 4 is skip factor
         agent.training = False
-        agent.play(fast_env, noise_level=1e-11)
+        agent.play(fast_env, noise_level=1e-11, episode_index=-1)
         agent.training = True
         del test_env
 

@@ -207,8 +207,9 @@ class DDPGAgent:
         print('episode {} done in {} steps in {:.2f} sec, {:.4f} sec/step, total reward :{:.2f}'.format(
             episode_index, steps, totaltime, totaltime / steps, total_reward
         ))
-        self.sess.run(tf.assign(self.reward_tensorboard, total_reward))
-        self.summary_writer.add_summary(self.sess.run(self.reward_summary), episode_index)
+        if episode_index >= 0:
+            self.sess.run(tf.assign(self.reward_tensorboard, total_reward))
+            self.summary_writer.add_summary(self.sess.run(self.reward_summary), episode_index)
 
     def clamer(self, actions):
         return np.clip(actions, a_max=1, a_min=0)
