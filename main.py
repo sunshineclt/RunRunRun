@@ -19,6 +19,7 @@ if __name__ == "__main__":
     noise_decay_rate = 0.005
     noise_floor = 0
     noiseless = 0.0001
+    global_episode_index = 0
 
     def refarm():
         global farmer
@@ -39,28 +40,28 @@ if __name__ == "__main__":
                     [stopsim])
 
 
-    def play_one_episode(env, nl):
+    def play_one_episode(env, nl, episode_index):
         fast_env = FastEnv(env, 3)  # 4 is skip factor
-        agent.play(fast_env, noise_level=nl)
+        agent.play(fast_env, noise_level=nl, episode_index=episode_index)
         env.rel()
         del fast_env
 
-    def play_async(env, nl):
-        thread = threading.Thread(target=play_one_episode, args=(env, nl))
+    def play_async(env, nl, episode_index):
+        thread = threading.Thread(target=play_one_episode, args=(env, nl, episode_index))
         thread.daemon = True
         thread.start()
 
-    def play_if_available(nl):
+    def play_if_available(nl, episode_index):
         while True:
             remote_env = farmer.acq_env()
             if not remote_env:  # There is no free environment
                 pass
             else:
-                play_async(remote_env, nl)
+                play_async(remote_env, nl, episode_index)
                 break
 
     def play_repeat(episode_number):
-        global stop_flag, noise_level
+        global stop_flag, noise_level, global_episode_index
         for i in range(episode_number):
             if stop_flag:
                 stop_flag = False
@@ -74,7 +75,8 @@ if __name__ == "__main__":
                 i+1, episode_number, nl
             ))
 
-            play_if_available(nl)
+            play_if_available(nl, global_episode_index)
+            global_episode_index += 1
 
             time.sleep(0.05)
             if (i + 1) % 200 == 0:

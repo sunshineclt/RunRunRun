@@ -31,6 +31,9 @@ class DDPGAgent:
         self.train_op, self.inference, self.update_target = self.build_train()
         self.summary_writer.add_graph(self.sess.graph)
 
+        self.reward_tensorboard = tf.Variable(0, name='reward_tensorboard', dtype=tf.float32)
+        self.reward_summary = tf.summary.scalar('Reward', reward_tensorboard)
+
         self.sess.run(tf.global_variables_initializer())
         self.update_target(1)
 
@@ -161,7 +164,7 @@ class DDPGAgent:
             experiences = self.replay_buffer.sample_batch(batch_size)
             self.train_op(experiences)
 
-    def play(self, env, noise_level, max_steps=50000):
+    def play(self, env, noise_level, episode_index, max_steps=50000):
         timer = time.time()
         # noise_source = OneFsqNoise()
         # noise_source.skip = 4  # frequency adjustment
@@ -198,11 +201,14 @@ class DDPGAgent:
                 self.train_once()
             if done:
                 break
+            s1 = s2
 
         totaltime = time.time() - timer
-        print('episode done in {} steps in {:.2f} sec, {:.4f} sec/step, total reward :{:.2f}'.format(
-            steps, totaltime, totaltime / steps, total_reward
+        print('episode {} done in {} steps in {:.2f} sec, {:.4f} sec/step, total reward :{:.2f}'.format(
+            episode_index, steps, totaltime, totaltime / steps, total_reward
         ))
+        self.sess.run(tf.assign(self.reward_tensorboard, total_reward))
+        self.summary_writer.add_summary(self.sess.run(self.reward_summary), episode_index)
 
     def clamer(self, actions):
         return np.clip(actions, a_max=1, a_min=0)
