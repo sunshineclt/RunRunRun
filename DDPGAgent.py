@@ -32,7 +32,7 @@ class DDPGAgent:
         self.summary_writer.add_graph(self.sess.graph)
 
         self.reward_tensorboard = tf.Variable(0, name='reward_tensorboard', dtype=tf.float32)
-        self.reward_summary = tf.summary.scalar('Reward', reward_tensorboard)
+        self.reward_summary = tf.summary.scalar('Reward', self.reward_tensorboard)
 
         self.sess.run(tf.global_variables_initializer())
         self.update_target(1)
