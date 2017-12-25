@@ -15,8 +15,8 @@ if __name__ == "__main__":
 
     farmer = Farmer()
 
-    noise_level = 2
-    noise_decay_rate = 0.005
+    noise_level = 0.5
+    noise_decay_rate = 0.001
     noise_floor = 0
     noiseless = 0.0001
     global_episode_index = 0

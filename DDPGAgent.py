@@ -14,13 +14,22 @@ class DDPGAgent:
     def __init__(self,
                  state_dims,
                  action_dims,
-                 gamma=0.99):
+                 gamma=0.96,
+                 actor_learning_rate=3e-4,
+                 critic_learning_rate=3e-4,
+                 batch_size=128,
+                 replay_buffer_size=2e6):
         self.state_dims = state_dims
         self.action_dims = action_dims
         self.gamma = gamma
-        self.replay_buffer = ReplayBuffer(1000000)
+        self.actor_learning_rate = actor_learning_rate
+        self.critic_learning_rate = critic_learning_rate
+        self.batch_size = batch_size
+        self.replay_buffer = ReplayBuffer(replay_buffer_size)
 
-        self.sess = tf.Session()
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        self.sess = tf.Session(config=config)
         self.summary_writer = tf.summary.FileWriter(tensorboard_path)
 
         self.create_actor_network("actor_now")  # Just creating shared network
@@ -39,47 +48,52 @@ class DDPGAgent:
 
         self.training = True
 
-    def create_actor_network(self, variable_scope, state_tensor=None, reuse=None):
+    def create_actor_network(self, variable_scope, fcs=None, state_tensor=None, reuse=None):
+        if fcs is None:
+            fcs = [800, 400]
         with tf.variable_scope(variable_scope, reuse=reuse):
             if state_tensor is None:
                 state_tensor = tf.placeholder(shape=[None, self.state_dims], dtype=tf.float32)
-            out = layers.fully_connected(state_tensor,
-                                         num_outputs=128,
-                                         activation_fn=tf.nn.selu)
-            out = layers.fully_connected(out,
-                                         num_outputs=128,
-                                         activation_fn=tf.nn.selu)
-            out = layers.fully_connected(out,
-                                         num_outputs=64,
-                                         activation_fn=tf.nn.selu)
-            out = layers.fully_connected(out,
-                                         num_outputs=64,
-                                         activation_fn=tf.nn.selu)
+            out = state_tensor
+            for fc in fcs:
+                out = layers.fully_connected(out,
+                                             num_outputs=fc,
+                                             activation_fn=tf.nn.selu)
             out = layers.fully_connected(out,
                                          num_outputs=self.action_dims,
                                          activation_fn=tf.nn.tanh)
             out = out * 0.5 + 0.5  # tanh result in [-1, 1] while we need [0, 1]
             return out
 
-    def create_critic_network(self, variable_scope, state_tensor=None, action_tensor=None, reuse=None):
+    def create_critic_network(self, variable_scope, fcs=None, state_tensor=None, action_tensor=None, reuse=None):
+        if fcs is None:
+            fcs = [800, 400]
         with tf.variable_scope(variable_scope, reuse=reuse):
             if state_tensor is None:
                 state_tensor = tf.placeholder(shape=[None, self.state_dims], dtype=tf.float32)
             if action_tensor is None:
                 action_tensor = tf.placeholder(shape=[None, self.action_dims], dtype=tf.float32)
-            out = layers.fully_connected(state_tensor,
-                                         num_outputs=128,
-                                         activation_fn=tf.nn.selu)
-            out = tf.concat([out, action_tensor], 1)
-            out = layers.fully_connected(out,
-                                         num_outputs=128,
-                                         activation_fn=tf.nn.selu)
-            out = layers.fully_connected(out,
-                                         num_outputs=64,
-                                         activation_fn=tf.nn.selu)
-            out = layers.fully_connected(out,
-                                         num_outputs=64,
-                                         activation_fn=tf.nn.selu)
+            # out = layers.fully_connected(state_tensor,
+            #                              num_outputs=128,
+            #                              activation_fn=tf.nn.selu)
+            # out = tf.concat([out, action_tensor], 1)
+            # out = layers.fully_connected(out,
+            #                              num_outputs=128,
+            #                              activation_fn=tf.nn.selu)
+            # out = layers.fully_connected(out,
+            #                              num_outputs=64,
+            #                              activation_fn=tf.nn.selu)
+            # out = layers.fully_connected(out,
+            #                              num_outputs=64,
+            #                              activation_fn=tf.nn.selu)
+            # out = layers.fully_connected(out,
+            #                              num_outputs=1,
+            #                              activation_fn=None)
+            out = tf.concat([state_tensor, action_tensor], 1)
+            for fc in fcs:
+                out = layers.fully_connected(out,
+                                             num_outputs=fc,
+                                             activation_fn=tf.nn.selu)
             out = layers.fully_connected(out,
                                          num_outputs=1,
                                          activation_fn=None)
@@ -122,8 +136,8 @@ class DDPGAgent:
         q_infer = q1_a1_predicted
 
         # optimize
-        opt = tf.train.AdamOptimizer(3e-5)
-        opt_actor, opt_critic = opt, opt
+        opt_actor = tf.train.AdamOptimizer(self.actor_learning_rate)
+        opt_critic = tf.train.AdamOptimizer(self.critic_learning_rate)
         critic_train = opt_critic.minimize(critic_loss, var_list=cw)
         actor_train = opt_actor.minimize(actor_loss, var_list=aw)
 
@@ -159,9 +173,9 @@ class DDPGAgent:
 
         return actions, q
 
-    def train_once(self, batch_size=64):
+    def train_once(self):
         if self.replay_buffer.size() > 2000:
-            experiences = self.replay_buffer.sample_batch(batch_size)
+            experiences = self.replay_buffer.sample_batch(self.batch_size)
             self.train_op(experiences)
 
     def play(self, env, noise_level, episode_index, max_steps=50000):
